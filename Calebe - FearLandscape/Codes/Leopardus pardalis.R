@@ -7,8 +7,6 @@
 #Species: Leopardus pardalis
 #Night lights best scale: 3 Km
 
-rm(list = ls())
-setwd("C:\\Users\\Calebe\\Desktop\\FearLandscape (git)\\Data") #Remover isso
 
 
 ### Load the data

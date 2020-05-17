@@ -13,6 +13,7 @@
 Data = read.csv("Day-Night_records.csv", header = TRUE)
 
 
+
 # Select the Puma data
 Data = Data[,c("Site", "NightLight_5km", "Puma_concolor_Day", "Puma_concolor_Night")]
 colnames(Data) = c("Site", "Disturbance", "Day", "Night")

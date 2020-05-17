@@ -7,8 +7,6 @@
 #Species: Nasua nasua
 #Night lights best scale: 10 Km
 
-rm(list = ls())
-setwd("C:\\Users\\Calebe\\Desktop\\FearLandscape (git)\\Data") #Remover isso
 
 
 ### Load the data

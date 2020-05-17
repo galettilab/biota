@@ -7,8 +7,6 @@
 #Species: Cuniculus paca
 #Night lights best scale: 5 Km
 
-rm(list = ls())
-setwd("C:\\Users\\Calebe\\Desktop\\FearLandscape (git)\\Data") #Remover isso
 
 
 ### Load the data
