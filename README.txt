@@ -8,7 +8,8 @@ The project is under the direction of Prof. Dr. Mauro Galetti, and is funded by 
 
 folders/Manuscripts:
 
-Calebe - Landscape of human fear in Neotropical rainforest mammals
-Yuri - ATLANTIC MAMMALS a data set of assemblages of medium- and large-sized mammals
+Mendes et al. 2020. Landscape of human fear in Neotropical rainforest mammals
+Souza et al. 2019. ATLANTIC MAMMALS: a data set of assemblages of medium- and large-sized mammals
+Villar et al. 2019. The cryptic regulation of diversity by functionally complementary large tropical forest herbivores
 
 Directory under construction...
