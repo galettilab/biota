@@ -1,0 +1,1840 @@
+---
+title: "Analyses for the MS on Phylogenies of Interactions and Defaunation"
+author: "Carine Emer y Miguel Verdú"
+date: "13/06/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load packages}
+library(picante)
+library(phytools)
+library(ape)
+library(caper)
+library(plyr)
+library(reshape)
+library(reshape2)
+library(data.table)
+library(dplyr)
+library(bipartite)
+library(Matrix)
+library(lme4)
+library(tibble)
+library(phangorn)
+library(plotly)
+```
+
+
+```{r input data}
+setwd("~/Dropbox/Phylogenetic interactions/Phylogenies - Metanetwork Miguel/data and analyses")
+load("~/Dropbox/Phylogenetic interactions/Phylogenies - Metanetwork Miguel/data/ms_phylogenies1.RData")
+
+atlantic<-read.csv("working_data.csv", header=TRUE)
+#data_pizo<-read.csv("frugivoria_Pizo natives.csv")
+communities<-read.csv("data_communities nat.csv")
+plants_taxon<-read.csv("plants_list_taxonomy_regional_pool.csv")
+
+save.image("ms_phylogenies2.RData")
+
+```
+
+```{r filtering dataset}
+#selecting interactions with birds only
+data<-atlantic[atlantic$Frug_Class == "Aves",]
+
+## selecting only native species, based on plants
+data<-data[data$Plant_origin=="native",]
+data<-droplevels(data) ## always check droplevels
+
+##### remove interactions with Psittacideos, Corvideos and Columbidae which are mostly seed predators
+data<-data[!data$Frug_Family==("Corvidae"),]
+data<-data[!data$Frug_Family==("Psittacidae"),]
+data<-data[!data$Frug_Family==("Columbidae"),]
+data<-data[!data$Frugivore_Species2==("Estrilda_astrild"),] ## exotic
+data<-droplevels(data)
+
+### create a list of bird species that interact with native plant species, and are not seed predators, i.e., the list of bird species resulting from 'data' after removing alien spp, and some bird families, as above. We are working with the regional pool of species to estimate their ED
+birds_list<-levels(data$Frugivore_Species2)
+#birds_list_unique<-unique(birds_list[duplicated(birds_list)])## be very careful here because it is removing unique species that are not duplicated, as Fluvicola nengeta - notice later when merging with traits etc
+#write.csv(birds_list,"birds_regional_pool1.csv") ## this list goes to birdtree.org to obtain 100 trees
+
+####------------------------------------ Plants
+### create a list of native plant species that interact with mutualistic birds, not seed predators, resulting from 'data' after removing alien spp, and some bird families, as above. 
+
+#We are working with the regional pool of species to estimate their ED. 
+
+#data<-data[!data$Plant_family==("Bromeliaceae"),] ## remove because of Aechmea nudicaulis not found in S. Phylomaker
+
+levels(data$Plant_Species2)[levels(data$Plant_Species2)=="Zanthoxylum_fagara"] <- "Zanthoxylum_hyemale"
+levels(data$Plant_Species2)[levels(data$Plant_Species2)=="Palicourea_forsteronioides"] <- "Psychotria_forsteronioides"
+levels(data$Plant_Species2)[levels(data$Plant_Species2)=="Schinus_therebintifolia"] <- "Schinus_terebinthifolia"
+
+levels(data$Plant_Species)[levels(data$Plant_Species)=="Zanthoxylum fagara"] <- "Zanthoxylum hyemale"
+levels(data$Plant_Species)[levels(data$Plant_Species)=="Palicourea forsteronioides"] <- "Psychotria forsteronioides"
+levels(data$Plant_Species)[levels(data$Plant_Species)=="Schinus therebentifolia"] <- "Schinus terebinthifolia"
+
+data<-data[!data$Plant_Species2==("Duranta erecta"),] ### remove because it interacts with Estrilda - alien spp
+data<-data[!data$Plant_Species==("Duranta erecta"),] ### remove because it interacts with Estrilda - alien spp
+
+plants_list_atlantic<-levels(data$Plant_Species2)
+plants_unique_atl<-as.data.frame(plants_list_atlantic)
+names(plants_unique_atl)[names(plants_unique_atl) == 'plants_list_atlantic'] <- 'species'
+
+write.csv(plants_unique_atl,"plants_list_regional_pool.csv")
+
+#plants1<-merge(plants_unique_atl, plants_taxon,by="species", all.x= T, all.y=F) ## this merging is to get the genus and family columns to the list of species, only
+#write.csv(plants1,"plants_list_taxonomy_regional_pool.csv") ##### fixed 'NA' in excel
+
+```
+
+```{r building tree plants, include= =FALSE}
+
+########## PLANTS 
+#phylo<-read.tree("PhytoPhylo.tre") # read in the megaphylogeny, obtained when downloading Phylomaker
+#nodes<-read.csv("nodes.csv",header=T, sep="\t") # read in the nodes information of the megaphylogeny.
+#source("S.PhyloMaker")
+#plants_taxon<-read.csv("plants_list_taxonomy_regional_pool.csv")
+#plants_taxon<-read.csv("plants_list_taxonomy.csv")
+#result_plants<-S.PhyloMaker(splist=plants_taxon, tree=phylo, nodes=nodes) # run the function S.PhyloMaker.
+
+#par(mfrow=c(1,3),mar=c(0,0,1,0)) # show the phylogenies of the three scenarios.
+#plot(result_plants$Scenario.1,cex=1.1,main="Scenario One") ## we chose to work with scenario 1 that "assigns"add genera or species as basal polytomies within their families of genera" 
+#plot(result$Scenario.2,cex=1.1,main="Scenario Two")
+#plot(result$Scenario.3,cex=1.1,main="Scenario Three")
+#is.binary.tree(result_plants$Scenario.1)
+
+#write.nexus(result$Scenario.1,file="tree_phylomaker_1.nex") ### saving nexus format
+#write.tree(result$Scenario.1,file="tree_phylomaker_1.nwk") ### saving newick format
+
+#mytree<-result_plants$Scenario.1
+
+########## using the saved newick format of the chosen scenario to plot the tree, or read the correspondent vector created above (mytree)
+#tree_plants<-read.tree("tree_phylomaker_1.nwk")
+#tree_plants<-mytree
+#plot(tree_plants, cex=0.1) 
+#zoom(tree_plants,240:280,show.node.label=TRUE)
+#axisPhylo(tree_nplants)
+#branching.times(tree_plants)
+
+#library(ape)
+#source("PolytomyResolver.R") #### function in the PolytomyResolver.R sent by Miguel Verdu
+
+#tree_plants<-read.tree("tree_phylomaker_1.nwk") ### read the tree resolved in PhyloMaker, or use the vector created above
+
+#PolytomyResolver(tree_plants,file="tree_plants") ### tree_plants.xml goes to BEAST - takes a few hours
+
+### then, generates tree_plants.trees which should be read again here to run the following:
+
+#trees<-read.nexus("tree_plants.trees") ## huge file
+
+
+######### after BEAST
+
+#postburnin<-trees[(0.25*length(trees)):length(trees)] #drops 25% of trees as burning 
+ 
+#tt100<-sample(postburnin, size=100) #randomly selects 100 trees
+#write.tree(tt100[[1]])
+#plot(tt100,show.tip.label=FALSE)
+#is.binary(tt100[[1]])
+
+#tt100_1<-tt100[[1]]
+#plot(tt100_1)
+#write.tree(tt100,"plants_100trees.nwk")
+
+```
+
+```{r building tree birds, include==FALSE}
+
+###### birds --- get bird.tre from birdtree.org
+### in birdtree.org, source of trees = "Stage2 MayrParSho Hackett"
+
+#bird_tree<-read.nexus("birds_tree.nex") # new format from birdtree
+
+
+#bt100<-bird_tree #The list of trees here
+#for (i in 1:length(bt100))
+#{
+#for (j in 1:length (sp)){
+ #     bt100[[i]]<-add.species.to.genus(bt100[[i]], sp[j], 
+  #                       where="random")}
+#}
+
+#write.tree(bt100,"birds_solved100_trees.nwk")
+
+#setdiff(bt100[[1]]$tip.label,birds_list)
+#setdiff(birds_list, bt100[[1]]$tip.label)
+
+#write.tree(bt100[[1]]) ### the function uses the same object, so bt100
+#plot(bt100[[1]])
+#zoom(bt100[[1]],151:200, cex = 0.55)
+#plot(b1, type="cladogram",cex = 0.35)
+#plot(bird_tree, type="fan", cex = 0.95) ## chose type of output format of the tree
+#axisPhylo() ## add branch lengths
+
+#is.ultrametric(bt100[[100]])  ### to check whether the tips have the same total length since root
+#diag(vcv(b1)) ## to check whether root to tip distance is the same for all tips
+#range(diag(vcv(b1)))
+
+```
+
+calculating Evolutionary Distinctiveness
+```{r ED birds, include= =FALSE}
+
+bt100<-read.newick("birds_solved100_trees.nwk")
+
+bt100<-lapply(bt100,drop.tip,tip="Estrilda_astrild") # exotic
+
+#To calculate Evolutionary Distinctiveness across the 100 trees in the list
+
+ED100<-lapply(bt100, evol.distinct)
+
+#### to convert the list into a dataframe
+for (i in 1: length(ED100)){ 
+ED100[[i]]<-ED100[[i]][order(ED100[[i]]$Species),]}
+
+ED100<-do.call(cbind.data.frame,ED100)
+ED100<-ED100[,-seq (3, 200, 2),] ## exclude columns with species names but first one
+rownames(ED100)<-ED100[,1] 
+ED100<-ED100[,-1] ## exclude first column
+colnames(ED100)<-paste("tree",1:100,sep="") ## give name to each column
+ED100 <- cbind(Frugivore_Species2 = rownames(ED100), ED100) # give name to first column to later match with other df
+rownames(ED100) <- NULL
+write.csv(ED100,"birds_ED100.csv")
+```
+
+calculating ED plants
+```{r ED plants, include= =FALSE}
+
+tt100<-read.newick("plants_100trees.nwk")
+tt100<-lapply(tt100,drop.tip,tip="Duranta_erecta")
+
+
+#### evolutionary distinctiveness, function in Picante
+ED100_p<-lapply(tt100, evol.distinct)
+
+#### organize the list of EDs in a dataframe - columns
+for (i in 1: length(ED100_p)){
+ED100_p[[i]]<-ED100_p[[i]][order(ED100_p[[i]]$Species),]}
+ED100_p<-do.call(cbind.data.frame,ED100_p)
+ED100_p<-ED100_p[,-seq (3, 200, 2),] ## exclude columns with species names but first one
+rownames(ED100_p)<-ED100_p[,1] 
+ED100_p<-ED100_p[,-1] ## exclude first column
+colnames(ED100_p)<-paste("tree",1:100,sep="") ## give name to each column
+ED100_p <- cbind(Plant_Species2 = rownames(ED100_p), ED100_p) # give name to first column to later match with other df
+rownames(ED100_p) <- NULL
+
+write.csv(ED100_p,"plants_ED100.csv")
+```
+
+ED and traits (seed diameter and body mass) are correlated at the regional level in the Atlantic (ie, native species and interactions with mutualistic seed disperser birds) but ony body mass and ED are significanlty related at the communities level
+```{r ED and traits species REGIONAL LEVEL}
+###-------------------------- Body mass - 222 species at the regional level
+
+## getting unique bird species and merging with their body mass (from Atlantic filtered as 'data', natives and mutualistic)
+ED100<-read.csv("birds_ED100.csv", row.names = 1)
+
+birds_unique<-as.data.frame(birds_list)
+names(birds_unique)[names(birds_unique) == 'birds_list'] <- 'Frugivore_Species2'
+#bm_birds<-merge(birds_unique, data,by="Frugivore_Species2", all.x= F, all.y=F)
+bm_birds<-merge(birds_unique, data,by="Frugivore_Species2")
+bm_birds<-bm_birds[,c("Frugivore_Species2", "Frug_Body_Mass", "Frugivore_Species", "interaction","Plant_Species2","seed_diameter", "Plant_Species")]
+bm_unique_atl<-subset(bm_birds,!duplicated(bm_birds[,1]))
+row.names(bm_unique_atl)<-bm_unique_atl$Frugivore_Species2
+## checking that names of traits and tree are the same REGIONAL LEVEL
+setdiff((bm_unique_atl$Frugivore_Species2),(ED100$Frugivore_Species2))
+setdiff(ED100$Frugivore_Species2,bm_unique_atl$Frugivore_Species2)
+
+removed<-setdiff(bm_unique_atl$Frugivore_Species2,bm_unique_commu2$Frugivore_Species2)
+
+bm_unique_commu<-bm_unique_atl[-which(row.names(bm_unique_atl)%in%removed),]
+
+
+ED100["mean_birds_ed"] <- rowMeans(ED100[,2:101])
+bm_unique_atl["mean_birds_ed"] <- rowMeans(ED100[,2:101])
+write.csv(ED100, "birds_ED100.csv")
+
+
+###
+### -------------------------Seed diameter - 440 species at the regional level
+
+ED100_p<-read.csv("plants_ED100.csv", row.names = 1)
+
+plants_unique<-as.data.frame(plants_list_atlantic)
+names(plants_unique)[names(plants_unique) == 'plants_list_atlantic'] <- 'Plant_Species2'
+sd_plants<-merge(plants_unique, data, by="Plant_Species2")
+sd_plants<-sd_plants[,c("Frugivore_Species2", "Frug_Body_Mass", "Frugivore_Species", "interaction","Plant_Species2","seed_diameter", "Plant_Species")]
+sd_unique_atl<-subset(sd_plants,!duplicated(sd_plants[,5]))
+
+## checking that names of traits and tree are the same
+setdiff((sd_unique_atl$Plant_Species2),(ED100_p$Plant_Species2))
+setdiff(ED100_p$Plant_Species2,sd_unique_atl$Plant_Species2)
+
+#quitar<-setdiff(row.names(ED100),(bm_unique$Frugivore_Species2))
+#quitar<-setdiff((sd_unique_commu2$Plant_Species2),(ED100_p2$Plant_Species2))
+#row.names(sd_unique)<-sd_unique$Plant_Species2
+#sd_unique<-sd_unique[-which(row.names(sd_unique)%in%quitar),]
+
+ED100_p["mean_plants_ed"] <- rowMeans(ED100_p[,2:101]) #### 
+sd_unique_atl["mean_plants_ed"] <- rowMeans(ED100_p[,2:101]) ## 
+
+write.csv(ED100_p, "plants_ED100.csv")
+```
+
+```{r filtering communities matrix, include = FALSE}
+#Intervales
+intervales<-subset(data, data$Study_Location_new == "PE Intervales")
+
+intervales_new_unique<-subset(intervales, !duplicated(intervales[,"interaction"]))
+
+intervales_new_unique<-intervales_new_unique[,c("Frugivore_Species", "Plant_Species")]
+intervales_new_unique$abundance<-rep(1,nrow(intervales_new_unique))
+intervales_new_unique<-intervales_new_unique[,c(2,3,1)]
+intervales_new_unique<-droplevels(intervales_new_unique)
+intervales_new_unique<-sample2matrix(intervales_new_unique)
+intervales_matrix<-matrix2sample(intervales_new_unique)
+dim(intervales_new_unique)
+
+# Carlos Botelho
+botelho<-subset(data, data$Study_Location_new == "PE Carlos Botelho")
+botelho<-botelho[,c("Frugivore_Species", "Plant_Species", "interaction")]
+
+botelho_new_unique<-subset(botelho, !duplicated(botelho[,"interaction"]))
+botelho_new_unique<-botelho_new_unique[,c("Frugivore_Species", "Plant_Species")]
+botelho_new_unique$abundance<-rep(1,nrow(botelho_new_unique))
+botelho_new_unique<-botelho_new_unique[,c(2,3,1)]
+botelho_new_unique<-droplevels(botelho_new_unique)
+botelho_new_unique<-sample2matrix(botelho_new_unique)
+nnzero(botelho_new_unique)
+
+# Cardoso
+cardoso<-subset(data, data$Study_Location_new == "PE Ilha do Cardoso")
+cardoso<-cardoso[,c("Frugivore_Species", "Plant_Species", "interaction")]
+
+cardoso_new_unique<-subset(cardoso, !duplicated(cardoso[,"interaction"]))
+cardoso_new_unique<-cardoso_new_unique[,c("Frugivore_Species", "Plant_Species")]
+cardoso_new_unique$abundance<-rep(1,nrow(cardoso_new_unique))
+cardoso_new_unique<-cardoso_new_unique[,c(2,3,1)]
+cardoso_new_unique<-droplevels(cardoso_new_unique)
+cardoso_new_unique<-sample2matrix(cardoso_new_unique)
+nnzero(cardoso_new_unique) ## count number of non zero cels - use to obtain number of interactions
+
+stagenebra<-subset(data, data$Study_Location == "ARIE Santa Genebra"|data$Study.reference == "Figueiredo 1999")
+stagenebra<-stagenebra[,c("Frugivore_Species", "Plant_Species")]
+stagenebra$abundance<-rep(1,nrow(stagenebra))
+stagenebra<-stagenebra[,c(2,3,1)]
+stagenebra<-droplevels(stagenebra)
+stagenebra<-sample2matrix(stagenebra)
+nnzero(stagenebra)
+
+######## communities that dont need merging
+ufrj<-subset(data, data$Study_Location == "Campus UFRJ")
+ufrj<-ufrj[,c("Frugivore_Species", "Plant_Species")]
+ufrj$abundance<-rep(1,nrow(ufrj))
+ufrj<-ufrj[,c(2,3,1)]
+ufrj<-droplevels(ufrj)
+ufrj<-sample2matrix(ufrj)
+
+pira<-subset(data, data$Study.reference == "Robison V 2015")
+pira<-pira[,c("Frugivore_Species", "Plant_Species")]
+pira$abundance<-rep(1,nrow(pira))
+pira<-pira[,c(2,3,1)]
+pira<-droplevels(pira)
+pira<-sample2matrix(pira)
+
+
+fragmentSP<-subset(data, data$Study.reference == "Hasui 1994")
+fragmentSP<-fragmentSP[,c("Frugivore_Species", "Plant_Species")]
+fragmentSP$abundance<-rep(1,nrow(fragmentSP))
+fragmentSP<-fragmentSP[,c(2,3,1)]
+fragmentSP<-droplevels(fragmentSP)
+fragmentSP<-sample2matrix(fragmentSP)
+
+rebioAntas<-subset(data, data$Study_Location == "ReBio Poco Antas, RJ")
+rebioAntas<-rebioAntas[,c("Frugivore_Species", "Plant_Species")]
+rebioAntas$abundance<-rep(1,nrow(rebioAntas))
+rebioAntas<-rebioAntas[,c(2,3,1)]
+rebioAntas<-droplevels(rebioAntas)
+rebioAntas<-sample2matrix(rebioAntas)
+
+anchieta<-subset(data, data$Study_Location == "PE Ilha Anchieta, SP")
+anchieta<-anchieta[,c("Frugivore_Species", "Plant_Species")]
+anchieta$abundance<-rep(1,nrow(anchieta))
+anchieta<-anchieta[,c(2,3,1)]
+anchieta<-droplevels(anchieta)
+anchieta<-sample2matrix(anchieta)
+
+fragmentMG<-subset(data, data$Study.reference == "Fadini  R F 2004")
+fragmentMG<-fragmentMG[,c("Frugivore_Species", "Plant_Species")]
+fragmentMG$abundance<-rep(1,nrow(fragmentMG))
+fragmentMG<-fragmentMG[,c(2,3,1)]
+fragmentMG<-droplevels(fragmentMG)
+fragmentMG<-sample2matrix(fragmentMG)
+
+araucaria<-subset(data, data$Study.reference == "Kindel 1996")
+araucaria<-araucaria[,c("Frugivore_Species", "Plant_Species")]
+araucaria$abundance<-rep(1,nrow(araucaria))
+araucaria<-araucaria[,c(2,3,1)]
+araucaria<-droplevels(araucaria)
+araucaria<-sample2matrix(araucaria)
+
+itatiba<-subset(data, data$Study_Location == "Itatiba, SP")
+itatiba<-itatiba[,c("Frugivore_Species", "Plant_Species")]
+itatiba$abundance<-rep(1,nrow(itatiba))
+itatiba<-itatiba[,c(2,3,1)]
+itatiba<-droplevels(itatiba)
+itatiba<-sample2matrix(itatiba)
+
+fragmentRC<-subset(data, data$Study_Location == "Usina Parque do Corumbatai, Rio Claro - SP")
+fragmentRC<-fragmentRC[,c("Frugivore_Species", "Plant_Species")]
+fragmentRC$abundance<-rep(1,nrow(fragmentRC))
+fragmentRC<-fragmentRC[,c(2,3,1)]
+fragmentRC<-droplevels(fragmentRC)
+fragmentRC<-sample2matrix(fragmentRC)
+
+restored57<-subset(data, data$Study.reference == "Ribeiro  F (unpublish) 57")
+restored57<-restored57[,c("Frugivore_Species", "Plant_Species")]
+restored57$abundance<-rep(1,nrow(restored57))
+restored57<-restored57[,c(2,3,1)]
+restored57<-droplevels(restored57)
+restored57<-sample2matrix(restored57)
+
+restored25<-subset(data, data$Study.reference == "Ribeiro  F (unpublish) 25")
+restored25<-restored25[,c("Frugivore_Species", "Plant_Species")]
+restored25$abundance<-rep(1,nrow(restored25))
+restored25<-restored25[,c(2,3,1)]
+restored25<-droplevels(restored25)
+restored25<-sample2matrix(restored25)
+
+restored15<-subset(data, data$Study.reference == "Ribeiro  F (unpublish) 15")
+restored15<-restored15[,c("Frugivore_Species", "Plant_Species")]
+restored15$abundance<-rep(1,nrow(restored15))
+restored15<-restored15[,c(2,3,1)]
+restored15<-droplevels(restored15)
+restored15<-sample2matrix(restored15)
+
+###### communities added from Pizo - Atlantic
+
+comboios<-subset(data, data$Study.reference == "Argel de Oliveira  1999 ")  # note the space after 1999 in the Atlantic 
+comboios<-comboios[,c("Frugivore_Species", "Plant_Species")]
+comboios$abundance<-rep(1,nrow(comboios))
+comboios<-comboios[,c(2,3,1)]
+comboios<-droplevels(comboios)
+comboios<-sample2matrix(comboios)
+
+itapua<-subset(data, data$Study.reference == "Scherer et al 2007") ### restinga?
+itapua<-itapua[,c("Frugivore_Species", "Plant_Species")]
+itapua$abundance<-rep(1,nrow(itapua))
+itapua<-itapua[,c(2,3,1)]
+itapua<-droplevels(itapua)
+itapua<-sample2matrix(itapua)
+
+reservasRJ<-subset(data, data$Study_Location == "PARNA Serra Orgaos"|data$Study_Location == "PE Tres Picos, RJ")
+reservasRJ<-reservasRJ[,c("Frugivore_Species", "Plant_Species")]
+reservasRJ$abundance<-rep(1,nrow(reservasRJ))
+reservasRJ<-reservasRJ[,c(2,3,1)]
+reservasRJ<-droplevels(reservasRJ)
+reservasRJ<-sample2matrix(reservasRJ)
+
+ibitipoca<-subset(data, data$Study.reference == "Manhaes 2003") 
+ibitipoca<-ibitipoca[,c("Frugivore_Species", "Plant_Species")]
+ibitipoca$abundance<-rep(1,nrow(ibitipoca))
+ibitipoca<-ibitipoca[,c(2,3,1)]
+ibitipoca<-droplevels(ibitipoca)
+ibitipoca<-sample2matrix(ibitipoca)
+
+jurubatiba<-subset(data, data$Study_Location == "Jurubatiba") ### community added to Atlantic by Pizo/Erisson
+jurubatiba<-jurubatiba[,c("Frugivore_Species", "Plant_Species")]
+jurubatiba$abundance<-rep(1,nrow(jurubatiba))
+jurubatiba<-jurubatiba[,c(2,3,1)]
+jurubatiba<-droplevels(jurubatiba)
+jurubatiba<-sample2matrix(jurubatiba)
+nnzero(jurubatiba)
+dim(jurubatiba)
+```
+
+```{r filtering communities body mass, include = FALSE}
+#bm_unique_atl$Frugivore_Species<-gsub("_"," ",bm_unique$Frugivore_Species)
+
+itapua1<-matrix2sample(itapua)
+birds_itapua<-itapua1$id
+b_itapua<-droplevels(birds_itapua)
+b_itapua<-as.data.frame(b_itapua)
+b_itapua<-subset(b_itapua,!duplicated(b_itapua))
+names(b_itapua)[1]<-paste("Frugivore_Species")
+b_itapua_bm<-merge(b_itapua,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+#b_itapua_bm1<-join(b_itapua,bm_unique,by="Frugivore_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+str(b_itapua_bm)
+
+b_itapua_bm[,9]<-NULL
+b_itapua_bm$site<-with(b_itapua_bm,"itapua")
+mean_bm_itapua<-mean(b_itapua_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+intervales1<-matrix2sample(intervales_new_unique)
+birds_intervales<-intervales1$id
+b_intervales<-droplevels(birds_intervales)
+b_intervales<-as.data.frame(b_intervales)
+b_intervales<-subset(b_intervales,!duplicated(b_intervales))
+names(b_intervales)[1]<-paste("Frugivore_Species")
+b_intervales_bm<-merge(b_intervales,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+dim(b_intervales_bm)
+b_intervales_bm[,9]<-NULL
+b_intervales_bm$site<-with(b_intervales_bm,"intervales")
+mean_bm_intervales<-mean(b_intervales_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+cardoso1<-matrix2sample(cardoso_new_unique)
+birds_cardoso<-cardoso1$id
+b_cardoso<-droplevels(birds_cardoso)
+b_cardoso<-as.data.frame(b_cardoso)
+b_cardoso<-subset(b_cardoso,!duplicated(b_cardoso))
+names(b_cardoso)[1]<-paste("Frugivore_Species")
+b_cardoso_bm<-merge(b_cardoso,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+dim(b_cardoso_bm)
+b_cardoso_bm[,9]<-NULL
+b_cardoso_bm$site<-with(b_cardoso_bm,"cardoso")
+mean_bm_cardoso<-mean(b_cardoso_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+botelho1<-matrix2sample(botelho_new_unique)
+birds_botelho<-botelho1$id
+b_botelho<-droplevels(birds_botelho)
+b_botelho<-as.data.frame(b_botelho)
+b_botelho<-subset(b_botelho,!duplicated(b_botelho))
+names(b_botelho)[1]<-paste("Frugivore_Species")
+b_botelho_bm<-merge(b_botelho,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_botelho_bm[,9]<-NULL
+b_botelho_bm$site<-with(b_botelho_bm,"botelho")
+mean_bm_botelho<-mean(b_botelho_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+rebioAntas1<-matrix2sample(rebioAntas)
+birds_rebioAntas<-rebioAntas1$id
+b_rebioAntas<-droplevels(birds_rebioAntas)
+b_rebioAntas<-as.data.frame(b_rebioAntas)
+b_rebioAntas<-subset(b_rebioAntas,!duplicated(b_rebioAntas))
+names(b_rebioAntas)[1]<-paste("Frugivore_Species")
+b_rebioAntas_bm<-merge(b_rebioAntas,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_rebioAntas_bm[,9]<-NULL
+b_rebioAntas_bm$site<-with(b_rebioAntas_bm,"rebioAntas")
+mean_bm_rebioAntas<-mean(b_rebioAntas_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+stagenebra1<-matrix2sample(stagenebra)
+birds_stagenebra<-stagenebra1$id
+b_stagenebra<-droplevels(birds_stagenebra)
+b_stagenebra<-as.data.frame(b_stagenebra)
+b_stagenebra<-subset(b_stagenebra,!duplicated(b_stagenebra))
+names(b_stagenebra)[1]<-paste("Frugivore_Species")
+b_stagenebra_bm<-merge(b_stagenebra,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_stagenebra_bm[,9]<-NULL
+b_stagenebra_bm$site<-with(b_stagenebra_bm,"stagenebra")
+mean_bm_stagenebra<-mean(b_stagenebra_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+
+anchieta1<-matrix2sample(anchieta)
+birds_anchieta<-anchieta1$id
+b_anchieta<-droplevels(birds_anchieta)
+b_anchieta<-as.data.frame(b_anchieta)
+b_anchieta<-subset(b_anchieta,!duplicated(b_anchieta))
+names(b_anchieta)[1]<-paste("Frugivore_Species")
+b_anchieta_bm<-merge(b_anchieta,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_anchieta_bm[,9]<-NULL
+b_anchieta_bm$site<-with(b_anchieta_bm,"anchieta")
+mean_bm_anchieta<-mean(b_anchieta_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+
+fragmentMG1<-matrix2sample(fragmentMG)
+birds_fragmentMG<-fragmentMG1$id
+b_fragmentMG<-droplevels(birds_fragmentMG)
+b_fragmentMG<-as.data.frame(b_fragmentMG)
+b_fragmentMG<-subset(b_fragmentMG,!duplicated(b_fragmentMG))
+names(b_fragmentMG)[1]<-paste("Frugivore_Species")
+b_fragmentMG_bm<-merge(b_fragmentMG,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_fragmentMG_bm[,9]<-NULL
+b_fragmentMG_bm$site<-with(b_fragmentMG_bm,"fragmentMG")
+mean_bm_fragmentMG<-mean(b_fragmentMG_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+araucaria1<-matrix2sample(araucaria)
+birds_araucaria<-araucaria1$id
+b_araucaria<-droplevels(birds_araucaria)
+b_araucaria<-as.data.frame(b_araucaria)
+b_araucaria<-subset(b_araucaria,!duplicated(b_araucaria))
+names(b_araucaria)[1]<-paste("Frugivore_Species")
+b_araucaria_bm<-merge(b_araucaria,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_araucaria_bm[,9]<-NULL
+b_araucaria_bm$site<-with(b_araucaria_bm,"araucaria")
+mean_bm_araucaria<-mean(b_araucaria_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+itatiba1<-matrix2sample(itatiba)
+birds_itatiba<-itatiba1$id
+b_itatiba<-droplevels(birds_itatiba)
+b_itatiba<-as.data.frame(b_itatiba)
+b_itatiba<-subset(b_itatiba,!duplicated(b_itatiba))
+names(b_itatiba)[1]<-paste("Frugivore_Species")
+b_itatiba_bm<-merge(b_itatiba,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_itatiba_bm[,9]<-NULL
+b_itatiba_bm$site<-with(b_itatiba_bm,"itatiba")
+mean_bm_itatiba<-mean(b_itatiba_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+fragmentRC1<-matrix2sample(fragmentRC)
+birds_fragmentRC<-fragmentRC1$id
+b_fragmentRC<-droplevels(birds_fragmentRC)
+b_fragmentRC<-as.data.frame(b_fragmentRC)
+b_fragmentRC<-subset(b_fragmentRC,!duplicated(b_fragmentRC))
+names(b_fragmentRC)[1]<-paste("Frugivore_Species")
+b_fragmentRC_bm<-merge(b_fragmentRC,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_fragmentRC_bm[,9]<-NULL
+b_fragmentRC_bm$site<-with(b_fragmentRC_bm,"fragmentRC")
+mean_bm_fragmentRC<-mean(b_fragmentRC_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+restored571<-matrix2sample(restored57)
+birds_restored57<-restored571$id
+b_restored57<-droplevels(birds_restored57)
+b_restored57<-as.data.frame(b_restored57)
+b_restored57<-subset(b_restored57,!duplicated(b_restored57))
+names(b_restored57)[1]<-paste("Frugivore_Species")
+b_restored57_bm<-merge(b_restored57,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_restored57_bm[,9]<-NULL
+b_restored57_bm$site<-with(b_restored57_bm,"restored57")
+mean_bm_restored57<-mean(b_restored57_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+restored251<-matrix2sample(restored25)
+birds_restored25<-restored251$id
+b_restored25<-droplevels(birds_restored25)
+b_restored25<-as.data.frame(b_restored25)
+b_restored25<-subset(b_restored25,!duplicated(b_restored25))
+names(b_restored25)[1]<-paste("Frugivore_Species")
+b_restored25_bm<-merge(b_restored25,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_restored25_bm[,9]<-NULL
+b_restored25_bm$site<-with(b_restored25_bm,"restored25")
+mean_bm_restored25<-mean(b_restored25_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+restored151<-matrix2sample(restored15)
+birds_restored15<-restored151$id
+b_restored15<-droplevels(birds_restored15)
+b_restored15<-as.data.frame(b_restored15)
+b_restored15<-subset(b_restored15,!duplicated(b_restored15))
+names(b_restored15)[1]<-paste("Frugivore_Species")
+b_restored15_bm<-merge(b_restored15,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_restored15_bm[,9]<-NULL
+b_restored15_bm$site<-with(b_restored15_bm,"restored15")
+mean_bm_restored15<-mean(b_restored15_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+fragmentSP1<-matrix2sample(fragmentSP)
+birds_fragmentSP<-fragmentSP1$id
+b_fragmentSP<-droplevels(birds_fragmentSP)
+b_fragmentSP<-as.data.frame(b_fragmentSP)
+b_fragmentSP<-subset(b_fragmentSP,!duplicated(b_fragmentSP))
+names(b_fragmentSP)[1]<-paste("Frugivore_Species")
+b_fragmentSP_bm<-merge(b_fragmentSP,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_fragmentSP_bm[,9]<-NULL
+b_fragmentSP_bm$site<-with(b_fragmentSP_bm,"fragmentSP")
+mean_bm_fragmentSP<-mean(b_fragmentSP_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+pira1<-matrix2sample(pira)
+birds_pira<-pira1$id
+b_pira<-droplevels(birds_pira)
+b_pira<-as.data.frame(b_pira)
+b_pira<-subset(b_pira,!duplicated(b_pira))
+names(b_pira)[1]<-paste("Frugivore_Species")
+b_pira_bm<-merge(b_pira,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_pira_bm[,9]<-NULL
+b_pira_bm$site<-with(b_pira_bm,"pira")
+mean_bm_pira<-mean(b_pira_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+ufrj1<-matrix2sample(ufrj)
+birds_ufrj<-ufrj1$id
+b_ufrj<-droplevels(birds_ufrj)
+b_ufrj<-as.data.frame(b_ufrj)
+b_ufrj<-subset(b_ufrj,!duplicated(b_ufrj))
+names(b_ufrj)[1]<-paste("Frugivore_Species")
+b_ufrj_bm<-merge(b_ufrj,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_ufrj_bm[,9]<-NULL
+b_ufrj_bm$site<-with(b_ufrj_bm,"ufrj")
+mean_bm_ufrj<-mean(b_ufrj_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+comboios1<-matrix2sample(comboios)
+birds_comboios<-comboios1$id
+b_comboios<-droplevels(birds_comboios)
+b_comboios<-as.data.frame(b_comboios)
+b_comboios<-subset(b_comboios,!duplicated(b_comboios))
+names(b_comboios)[1]<-paste("Frugivore_Species")
+b_comboios_bm<-merge(b_comboios,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_comboios_bm[,9]<-NULL
+b_comboios_bm$site<-with(b_comboios_bm,"comboios")
+mean_bm_comboios<-mean(b_comboios_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+reservasRJ1<-matrix2sample(reservasRJ)
+birds_reservasRJ<-reservasRJ1$id
+b_reservasRJ<-droplevels(birds_reservasRJ)
+b_reservasRJ<-as.data.frame(b_reservasRJ)
+b_reservasRJ<-subset(b_reservasRJ,!duplicated(b_reservasRJ))
+names(b_reservasRJ)[1]<-paste("Frugivore_Species")
+b_reservasRJ_bm<-merge(b_reservasRJ,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_reservasRJ_bm[,9]<-NULL
+b_reservasRJ_bm$site<-with(b_reservasRJ_bm,"reservasRJ")
+mean_bm_reservasRJ<-mean(b_reservasRJ_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+ibitipoca1<-matrix2sample(ibitipoca)
+birds_ibitipoca<-ibitipoca1$id
+b_ibitipoca<-droplevels(birds_ibitipoca)
+b_ibitipoca<-as.data.frame(b_ibitipoca)
+b_ibitipoca<-subset(b_ibitipoca,!duplicated(b_ibitipoca))
+names(b_ibitipoca)[1]<-paste("Frugivore_Species")
+b_ibitipoca_bm<-merge(b_ibitipoca,bm_unique_atl,by="Frugivore_Species",all.x = F,all.y = F)
+b_ibitipoca_bm[,9]<-NULL
+b_ibitipoca_bm$site<-with(b_ibitipoca_bm,"ibitipoca")
+mean_bm_ibitipoca<-mean(b_ibitipoca_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+jurubatiba1<-matrix2sample(jurubatiba)
+birds_jurubatiba<-jurubatiba1$id
+b_jurubatiba<-droplevels(birds_jurubatiba)
+b_jurubatiba<-as.data.frame(b_jurubatiba)
+b_jurubatiba<-subset(b_jurubatiba,!duplicated(b_jurubatiba))
+names(b_jurubatiba)[1]<-paste("Frugivore_Species")
+b_jurubatiba_bm<-merge(b_jurubatiba,bm_unique_atl,by="Frugivore_Species",all.x = T,all.y = F)
+dim(b_jurubatiba_bm)
+b_jurubatiba_bm[,9]<-NULL
+b_jurubatiba_bm$site<-with(b_jurubatiba_bm,"jurubatiba")
+mean_bm_jurubatiba<-mean(b_jurubatiba_bm[,"Frug_Body_Mass"],na.rm=TRUE)
+
+##### merging all communities with their bodymass
+### 
+commu_bm_list<-list(b_intervales_bm, b_cardoso_bm, b_botelho_bm,
+                      b_rebioAntas_bm, b_anchieta_bm,b_araucaria_bm,
+                      b_fragmentMG_bm, b_fragmentRC_bm,b_fragmentSP_bm,                      b_stagenebra_bm, b_itatiba_bm, b_itapua_bm,                      b_restored57_bm, b_restored25_bm, b_restored15_bm,                      b_pira_bm, b_jurubatiba_bm, b_ibitipoca_bm,                      b_ufrj_bm, b_reservasRJ_bm, b_comboios_bm)
+
+bm_commu<-merge_all(commu_bm_list) # function from reshape
+```
+
+```{r filtering communities seed diameter, include = FALSE}
+
+itapua1<-matrix2sample(itapua)
+plants_itapua<-itapua1$plot
+p_itapua<-droplevels(plants_itapua)
+p_itapua<-as.data.frame(p_itapua)
+p_itapua<-subset(p_itapua,!duplicated(p_itapua))
+names(p_itapua)[1]<-paste("Plant_Species")
+p_itapua_sd<-merge(p_itapua,sd_unique_atl,by="Plant_Species",all.x = F,all.y = F)
+#b_itapua_bm1<-join(b_itapua,bm_unique_atl,by="Frugivore_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_itapua_sd)
+p_itapua_sd[,8]<-NULL
+p_itapua_sd$site<-with(p_itapua_sd,"itapua")
+
+intervales1<-matrix2sample(intervales_new_unique)
+plants_intervales<-intervales1$plot
+p_intervales<-droplevels(plants_intervales)
+p_intervales<-as.data.frame(p_intervales)
+p_intervales<-subset(p_intervales,!duplicated(p_intervales))
+names(p_intervales)[1]<-paste("Plant_Species")
+p_intervales_sd<-join(p_intervales,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_intervales_sd)
+p_intervales_sd[,8]<-NULL
+p_intervales_sd$site<-with(p_intervales_sd,"intervales")
+
+cardoso2<-matrix2sample(cardoso_new_unique)
+plants_cardoso<-cardoso2$plot
+p_cardoso<-droplevels(plants_cardoso)
+p_cardoso<-as.data.frame(p_cardoso)
+p_cardoso<-subset(p_cardoso,!duplicated(p_cardoso))
+names(p_cardoso)[1]<-paste("Plant_Species")
+p_cardoso_sd<-join(p_cardoso,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_cardoso_sd)
+p_cardoso_sd[,8]<-NULL
+p_cardoso_sd$site<-with(p_cardoso_sd,"cardoso")
+
+botelho2<-matrix2sample(botelho_new_unique)
+plants_botelho<-botelho2$plot
+p_botelho<-droplevels(plants_botelho)
+p_botelho<-as.data.frame(p_botelho)
+p_botelho<-subset(p_botelho,!duplicated(p_botelho))
+names(p_botelho)[1]<-paste("Plant_Species")
+p_botelho_sd<-join(p_botelho,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_botelho_sd)
+p_botelho_sd[,8]<-NULL
+p_botelho_sd$site<-with(p_botelho_sd,"botelho")
+
+rebioAntas2<-matrix2sample(rebioAntas)
+plants_rebioAntas<-rebioAntas2$plot
+p_rebioAntas<-droplevels(plants_rebioAntas)
+p_rebioAntas<-as.data.frame(p_rebioAntas)
+p_rebioAntas<-subset(p_rebioAntas,!duplicated(p_rebioAntas))
+names(p_rebioAntas)[1]<-paste("Plant_Species")
+p_rebioAntas_sd<-join(p_rebioAntas,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_rebioAntas_sd)
+p_rebioAntas_sd[,8]<-NULL
+p_rebioAntas_sd$site<-with(p_rebioAntas_sd,"rebioAntas")
+
+stagenebra2<-matrix2sample(stagenebra)
+plants_stagenebra<-stagenebra2$plot
+p_stagenebra<-droplevels(plants_stagenebra)
+p_stagenebra<-as.data.frame(p_stagenebra)
+p_stagenebra<-subset(p_stagenebra,!duplicated(p_stagenebra))
+names(p_stagenebra)[1]<-paste("Plant_Species")
+p_stagenebra_sd<-join(p_stagenebra,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_stagenebra_sd)
+p_stagenebra_sd[,8]<-NULL
+p_stagenebra_sd$site<-with(p_stagenebra_sd,"stagenebra")
+
+rebioAntas2<-matrix2sample(rebioAntas)
+plants_rebioAntas<-rebioAntas2$plot
+p_rebioAntas<-droplevels(plants_rebioAntas)
+p_rebioAntas<-as.data.frame(p_rebioAntas)
+p_rebioAntas<-subset(p_rebioAntas,!duplicated(p_rebioAntas))
+names(p_rebioAntas)[1]<-paste("Plant_Species")
+p_rebioAntas_sd<-join(p_rebioAntas,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_rebioAntas_sd)
+p_rebioAntas_sd[,8]<-NULL
+p_rebioAntas_sd$site<-with(p_rebioAntas_sd,"rebioAntas")
+
+anchieta2<-matrix2sample(anchieta)
+plants_anchieta<-anchieta2$plot
+p_anchieta<-droplevels(plants_anchieta)
+p_anchieta<-as.data.frame(p_anchieta)
+p_anchieta<-subset(p_anchieta,!duplicated(p_anchieta))
+names(p_anchieta)[1]<-paste("Plant_Species")
+p_anchieta_sd<-join(p_anchieta,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_anchieta_sd)
+p_anchieta_sd[,8]<-NULL
+p_anchieta_sd$site<-with(p_anchieta_sd,"anchieta")
+
+fragmentMG2<-matrix2sample(fragmentMG)
+plants_fragmentMG<-fragmentMG2$plot
+p_fragmentMG<-droplevels(plants_fragmentMG)
+p_fragmentMG<-as.data.frame(p_fragmentMG)
+p_fragmentMG<-subset(p_fragmentMG,!duplicated(p_fragmentMG))
+names(p_fragmentMG)[1]<-paste("Plant_Species")
+p_fragmentMG_sd<-join(p_fragmentMG,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_fragmentMG_sd)
+p_fragmentMG_sd[,8]<-NULL
+p_fragmentMG_sd$site<-with(p_fragmentMG_sd,"fragmentMG")
+
+araucaria2<-matrix2sample(araucaria)
+plants_araucaria<-araucaria2$plot
+p_araucaria<-droplevels(plants_araucaria)
+p_araucaria<-as.data.frame(p_araucaria)
+p_araucaria<-subset(p_araucaria,!duplicated(p_araucaria))
+names(p_araucaria)[1]<-paste("Plant_Species")
+p_araucaria_sd<-join(p_araucaria,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_araucaria_sd)
+p_araucaria_sd[,8]<-NULL
+p_araucaria_sd$site<-with(p_araucaria_sd,"araucaria")
+
+itatiba2<-matrix2sample(itatiba)
+plants_itatiba<-itatiba2$plot
+p_itatiba<-droplevels(plants_itatiba)
+p_itatiba<-as.data.frame(p_itatiba)
+p_itatiba<-subset(p_itatiba,!duplicated(p_itatiba))
+names(p_itatiba)[1]<-paste("Plant_Species")
+p_itatiba_sd<-join(p_itatiba,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_itatiba_sd)
+p_itatiba_sd[,8]<-NULL
+p_itatiba_sd$site<-with(p_itatiba_sd,"itatiba")
+
+fragmentRC2<-matrix2sample(fragmentRC)
+plants_fragmentRC<-fragmentRC2$plot
+p_fragmentRC<-droplevels(plants_fragmentRC)
+p_fragmentRC<-as.data.frame(p_fragmentRC)
+p_fragmentRC<-subset(p_fragmentRC,!duplicated(p_fragmentRC))
+names(p_fragmentRC)[1]<-paste("Plant_Species")
+p_fragmentRC_sd<-join(p_fragmentRC,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_fragmentRC_sd)
+p_fragmentRC_sd[,8]<-NULL
+p_fragmentRC_sd$site<-with(p_fragmentRC_sd,"fragmentRC")
+
+restored572<-matrix2sample(restored57)
+plants_restored57<-restored572$plot
+p_restored57<-droplevels(plants_restored57)
+p_restored57<-as.data.frame(p_restored57)
+p_restored57<-subset(p_restored57,!duplicated(p_restored57))
+names(p_restored57)[1]<-paste("Plant_Species")
+p_restored57_sd<-join(p_restored57,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_restored57_sd)
+p_restored57_sd[,8]<-NULL
+p_restored57_sd$site<-with(p_restored57_sd,"restored57")
+
+restored252<-matrix2sample(restored25)
+plants_restored25<-restored252$plot
+p_restored25<-droplevels(plants_restored25)
+p_restored25<-as.data.frame(p_restored25)
+p_restored25<-subset(p_restored25,!duplicated(p_restored25))
+names(p_restored25)[1]<-paste("Plant_Species")
+p_restored25_sd<-join(p_restored25,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_restored25_sd)
+p_restored25_sd[,8]<-NULL
+p_restored25_sd$site<-with(p_restored25_sd,"restored25")
+
+restored152<-matrix2sample(restored15)
+plants_restored15<-restored152$plot
+p_restored15<-droplevels(plants_restored15)
+p_restored15<-as.data.frame(p_restored15)
+p_restored15<-subset(p_restored15,!duplicated(p_restored15))
+names(p_restored15)[1]<-paste("Plant_Species")
+p_restored15_sd<-join(p_restored15,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_restored15_sd)
+p_restored15_sd[,8]<-NULL
+p_restored15_sd$site<-with(p_restored15_sd,"restored15")
+
+fragmentSP2<-matrix2sample(fragmentSP)
+plants_fragmentSP<-fragmentSP2$plot
+p_fragmentSP<-droplevels(plants_fragmentSP)
+p_fragmentSP<-as.data.frame(p_fragmentSP)
+p_fragmentSP<-subset(p_fragmentSP,!duplicated(p_fragmentSP))
+names(p_fragmentSP)[1]<-paste("Plant_Species")
+p_fragmentSP_sd<-join(p_fragmentSP,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_fragmentSP_sd)
+p_fragmentSP_sd[,8]<-NULL
+p_fragmentSP_sd$site<-with(p_fragmentSP_sd,"fragmentSP")
+
+pira2<-matrix2sample(pira)
+plants_pira<-pira2$plot
+p_pira<-droplevels(plants_pira)
+p_pira<-as.data.frame(p_pira)
+p_pira<-subset(p_pira,!duplicated(p_pira))
+names(p_pira)[1]<-paste("Plant_Species")
+p_pira_sd<-join(p_pira,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_pira_sd)
+p_pira_sd[,8]<-NULL
+p_pira_sd$site<-with(p_pira_sd,"pira")
+
+ufrj2<-matrix2sample(ufrj)
+plants_ufrj<-ufrj2$plot
+p_ufrj<-droplevels(plants_ufrj)
+p_ufrj<-as.data.frame(p_ufrj)
+p_ufrj<-subset(p_ufrj,!duplicated(p_ufrj))
+names(p_ufrj)[1]<-paste("Plant_Species")
+p_ufrj_sd<-join(p_ufrj,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_ufrj_sd)
+p_ufrj_sd[,8]<-NULL
+p_ufrj_sd$site<-with(p_ufrj_sd,"ufrj")
+
+comboios2<-matrix2sample(comboios)
+plants_comboios<-comboios2$plot
+p_comboios<-droplevels(plants_comboios)
+p_comboios<-as.data.frame(p_comboios)
+p_comboios<-subset(p_comboios,!duplicated(p_comboios))
+names(p_comboios)[1]<-paste("Plant_Species")
+p_comboios_sd<-join(p_comboios,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_comboios_sd)
+p_comboios_sd[,8]<-NULL
+p_comboios_sd$site<-with(p_comboios_sd,"comboios")
+
+reservasRJ2<-matrix2sample(reservasRJ)
+plants_reservasRJ<-reservasRJ2$plot
+p_reservasRJ<-droplevels(plants_reservasRJ)
+p_reservasRJ<-as.data.frame(p_reservasRJ)
+p_reservasRJ<-subset(p_reservasRJ,!duplicated(p_reservasRJ))
+names(p_reservasRJ)[1]<-paste("Plant_Species")
+p_reservasRJ_sd<-join(p_reservasRJ,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_reservasRJ_sd)
+p_reservasRJ_sd[,8]<-NULL
+p_reservasRJ_sd$site<-with(p_reservasRJ_sd,"reservasRJ")
+
+ibitipoca2<-matrix2sample(ibitipoca)
+plants_ibitipoca<-ibitipoca2$plot
+p_ibitipoca<-droplevels(plants_ibitipoca)
+p_ibitipoca<-as.data.frame(p_ibitipoca)
+p_ibitipoca<-subset(p_ibitipoca,!duplicated(p_ibitipoca))
+names(p_ibitipoca)[1]<-paste("Plant_Species")
+p_ibitipoca_sd<-join(p_ibitipoca,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_ibitipoca_sd)
+p_ibitipoca_sd[,8]<-NULL
+p_ibitipoca_sd$site<-with(p_ibitipoca_sd,"ibitipoca")
+
+jurubatiba2<-matrix2sample(jurubatiba)
+plants_jurubatiba<-jurubatiba2$plot
+p_jurubatiba<-droplevels(plants_jurubatiba)
+p_jurubatiba<-as.data.frame(p_jurubatiba)
+p_jurubatiba<-subset(p_jurubatiba,!duplicated(p_jurubatiba))
+names(p_jurubatiba)[1]<-paste("Plant_Species")
+p_jurubatiba_sd<-join(p_jurubatiba,sd_unique_atl,by="Plant_Species", type = "left") # an option for merge - if it doesnt work, but it is given same results here
+dim(p_jurubatiba_sd)
+p_jurubatiba_sd[,8]<-NULL
+p_jurubatiba_sd$site<-with(p_jurubatiba_sd,"jurubatiba")
+
+
+##### merging all communities with their bodymass
+### 
+commu_sd_list<-list(p_intervales_sd, p_cardoso_sd, p_botelho_sd,
+                      p_rebioAntas_sd, p_anchieta_sd, p_araucaria_sd,
+                      p_fragmentMG_sd, p_fragmentRC_sd, p_fragmentSP_sd,
+                      p_stagenebra_sd, p_itatiba_sd, p_itapua_sd,
+                      p_restored57_sd, p_restored25_sd, p_restored15_sd,
+                      p_pira_sd, p_jurubatiba_sd, p_ibitipoca_sd,
+                      p_ufrj_sd, p_reservasRJ_sd, p_comboios_sd)
+
+
+sd_commu<-merge_all(commu_sd_list) # function from reshape
+str(sd_commu)
+setdiff(sd_commu$Plant_Species2, ED100_p$Plant_Species2)
+setdiff(ED100_p$Plant_Species2, sd_commu$Plant_Species2)
+```
+
+```{r filtering communities int, include = FALSE}
+
+### obtain a list of interactions per site
+intervales<-subset(data, data$Study_Location_new == "PE Intervales")
+intervales_i<-intervales[,c("Frugivore_Species", "Plant_Species", "interaction")]
+intervales_i<-subset(intervales_i,!duplicated(intervales_i[,3]))
+intervales_i[,4]<-NULL
+intervales_i$site<-with(intervales_i,"intervales")
+
+
+stagenebra<-subset(data, data$Study_Location == "ARIE Santa Genebra"|data$Study.reference == "Figueiredo 1999")
+stagenebra_i<-stagenebra[,c("Frugivore_Species", "Plant_Species","interaction")]
+stagenebra_i<-subset(stagenebra_i,!duplicated(stagenebra_i[,3]))
+stagenebra_i[,4]<-NULL
+stagenebra_i$site<-with(stagenebra_i,"stagenebra")
+
+
+ufrj<-subset(data, data$Study_Location == "Campus UFRJ")
+ufrj_i<-ufrj[,c("Frugivore_Species", "Plant_Species", "interaction")]
+ufrj_i[,4]<-NULL
+ufrj_i$site<-with(ufrj_i,"ufrj")
+
+pira<-subset(data, data$Study.reference == "Robison V 2015")
+pira_i<-pira[,c("Frugivore_Species", "Plant_Species", "interaction")]
+pira_i[,4]<-NULL
+pira_i$site<-with(pira_i,"pira")
+
+fragmentSP<-subset(data, data$Study.reference == "Hasui 1994")
+fragmentSP_i<-fragmentSP[,c("Frugivore_Species", "Plant_Species", "interaction")]
+fragmentSP_i[,4]<-NULL
+fragmentSP_i$site<-with(fragmentSP_i,"fragmentSP")
+
+rebioAntas<-subset(data, data$Study_Location == "ReBio Poco Antas, RJ")
+rebioAntas_i<-rebioAntas[,c("Frugivore_Species", "Plant_Species","interaction")]
+rebioAntas_i[,4]<-NULL
+rebioAntas_i$site<-with(rebioAntas_i,"rebioAntas")
+
+anchieta<-subset(data, data$Study_Location == "PE Ilha Anchieta, SP")
+anchieta_i<-anchieta[,c("Frugivore_Species", "Plant_Species","interaction")]
+anchieta_i<-subset(anchieta_i,!duplicated(anchieta_i[,3]))
+anchieta_i[,4]<-NULL
+anchieta_i$site<-with(anchieta_i,"anchieta")
+
+fragmentMG<-subset(data, data$Study.reference == "Fadini  R F 2004")
+fragmentMG_i<-fragmentMG[,c("Frugivore_Species", "Plant_Species", "interaction")]
+fragmentMG_i[,4]<-NULL
+fragmentMG_i$site<-with(fragmentMG_i,"fragmentMG")
+
+araucaria<-subset(data, data$Study.reference == "Kindel 1996")
+araucaria_i<-araucaria[,c("Frugivore_Species", "Plant_Species", "interaction")]
+araucaria_i[,4]<-NULL
+araucaria_i$site<-with(araucaria_i,"araucaria")
+
+itatiba<-subset(data, data$Study_Location == "Itatiba, SP")
+itatiba_i<-itatiba[,c("Frugivore_Species", "Plant_Species", "interaction")]
+itatiba_i[,4]<-NULL
+itatiba_i$site<-with(itatiba_i,"itatiba")
+
+fragmentRC<-subset(data, data$Study_Location == "Usina Parque do Corumbatai, Rio Claro - SP")
+fragmentRC_i<-fragmentRC[,c("Frugivore_Species", "Plant_Species", "interaction")]
+fragmentRC_i[,4]<-NULL
+fragmentRC_i$site<-with(fragmentRC_i,"fragmentRC")
+
+restored57<-subset(data, data$Study.reference == "Ribeiro  F (unpublish) 57")
+restored57_i<-restored57[,c("Frugivore_Species", "Plant_Species", "interaction")]
+restored57_i[,4]<-NULL
+restored57_i$site<-with(restored57_i,"restored57")
+
+restored25<-subset(data, data$Study.reference == "Ribeiro  F (unpublish) 25")
+restored25_i<-restored25[,c("Frugivore_Species", "Plant_Species", "interaction")]
+restored25_i[,4]<-NULL
+restored25_i$site<-with(restored25_i,"restored25")
+
+restored15<-subset(data, data$Study.reference == "Ribeiro  F (unpublish) 15")
+restored15_i<-restored15[,c("Frugivore_Species", "Plant_Species", "interaction")]
+restored15_i[,4]<-NULL
+restored15_i$site<-with(restored15_i,"restored15")
+
+comboios<-subset(data, data$Study.reference == "Argel de Oliveira  1999 ")  # note the space after 1999 in the Atlantic 
+comboios_i<-comboios[,c("Frugivore_Species", "Plant_Species", "interaction")]
+comboios_i[,4]<-NULL
+comboios_i$site<-with(comboios_i,"comboios")
+
+itapua<-subset(data, data$Study.reference == "Scherer et al 2007") ### restinga?
+itapua_i<-itapua[,c("Frugivore_Species", "Plant_Species", "interaction")]
+itapua_i[,4]<-NULL
+itapua_i$site<-with(itapua_i,"itapua")
+
+reservasRJ<-subset(data, data$Study_Location == "PARNA Serra Orgaos"|data$Study_Location == "PE Tres Picos, RJ")
+reservasRJ_i<-reservasRJ[,c("Frugivore_Species", "Plant_Species", "interaction")]
+reservasRJ_i<-subset(reservasRJ_i,!duplicated(reservasRJ_i[,3]))
+reservasRJ_i[,4]<-NULL
+reservasRJ_i$site<-with(reservasRJ_i,"reservasRJ")
+
+
+ibitipoca<-subset(data, data$Study.reference == "Manhaes 2003") 
+ibitipoca_i<-ibitipoca[,c("Frugivore_Species", "Plant_Species", "interaction")]
+ibitipoca_i<-subset(ibitipoca_i,!duplicated(ibitipoca_i[,3]))
+ibitipoca_i[,4]<-NULL
+ibitipoca_i$site<-with(ibitipoca_i,"ibitipoca")
+
+jurubatiba<-subset(data, data$Study_Location == "Jurubatiba") 
+jurubatiba_i<-jurubatiba[,c("Frugivore_Species", "Plant_Species", "interaction")]
+jurubatiba_i[,4]<-NULL
+jurubatiba_i$site<-with(jurubatiba_i,"jurubatiba")
+
+cardoso_i<-cardoso
+cardoso_i<-subset(cardoso_i,!duplicated(cardoso_i[,3]))
+cardoso_i[,4]<-NULL
+cardoso_i$site<-with(cardoso_i,"cardoso")
+
+botelho_i<-botelho
+botelho_i<-subset(botelho_i,!duplicated(botelho_i[,3]))
+botelho_i[,4]<-NULL
+botelho_i$site<-with(botelho_i,"botelho")
+
+int_list<-list (intervales_i, cardoso_i,botelho_i,
+                      rebioAntas_i, anchieta_i, araucaria_i,
+                      fragmentMG_i, fragmentRC_i, fragmentSP_i,
+                      stagenebra_i, itatiba_i, itapua_i,
+                      restored57_i, restored25_i, restored15_i,
+                      pira_i, jurubatiba_i, ibitipoca_i,
+                      ufrj_i, reservasRJ_i, comboios_i)
+
+
+int_commu<-merge_all(int_list) # function from reshape
+str(int_commu)
+
+
+############### ------------------- interactions per site
+#dt1 <- data.table(itapua_i, key = "interaction") 
+#dt2 <- data.table(int_ed_site, key = "interaction")
+#t <- left_join (dt1,dt2)
+#t1<-subset(t, !duplicated(t[,"interaction"]))
+
+#rm(list=ls())
+#save.image("ms_phylogenies.RData")
+```
+
+
+ED and traits (seed diameter and body mass) are correlated for the communities of the Atlantic (ie, native species and interactions with mutualistic seed disperser birds)
+```{r ED and traits COMMUNITIES, include=FALSE}
+
+##################working with bird species for the selected communities
+#### ------------------- BIRDS - 186 sp among the selected communities - 222 regional level
+
+bm_ED_commu<-join(bm_commu, ED100, by="Frugivore_Species2") # join to get traits and ED same object
+bm_unique_commu<-subset(bm_ED_commu,!duplicated(bm_ED_commu[,1])) # using unique spp for the traits correlations
+row.names(bm_unique_commu)<-bm_unique_commu$Frugivore_Species2
+#bm_unique_commu2<-join(bm_unique_commu, ED100, by = "Frugivore_Species2", type = "left")
+bm_unique_commu<-subset(bm_unique_commu[,1:9]) # remove 100 trees
+
+
+####
+##-------------------------PLANTS - 360 spp among the selected communities
+#names(ED100_p)[names(ED100_p) == 'Plant_Species'] <- 'Plant_Species'
+
+sd_ED_commu<-join(sd_commu, sd_unique_atl, by="Plant_Species2") 
+sd_ED_commu<-sd_ED_commu[,-(9:14)]
+sd_unique_commu<-subset(sd_ED_commu,!duplicated(sd_ED_commu[,1])) # using unique spp for the traits correlations
+#row.names(sd_unique_commu)<-sd_unique_commu$Plant_Species
+
+
+```
+
+
+```{r correlations ED and traits}
+
+#######------------------------------- Correlations
+### ----------------Birds
+source("~/Dropbox/Phylogenetic interactions/Phylogenies - Metanetwork Miguel/R codes/functions/corPerm.R")
+
+
+### ----------- regional level
+#results_ed_bm<-corPerm3(log(bm_unique_atl$Frug_Body_Mass),bm_unique_atl$mean_birds_ed,nperm=999, tail=2)
+#results_ed_bm
+
+### ----------- studies species in the local communities level
+results_ed_bm_commu<-corPerm3(log(bm_unique_commu$Frug_Body_Mass),bm_unique_commu$mean_birds_ed,nperm=999, tail=2)
+results_ed_bm_commu
+
+
+par(mfrow=c(1,2))
+
+plot(log(bm_unique_commu$Frug_Body_Mass)~log(bm_unique_commu$mean_birds_ed),
+     cex.main=.7,cex.lab=.8, main = "a) Bird Frugivore Species",
+     ylab="Body mass (g)",
+     xlab="Evolutionary Distinctiveness (log[mean ED])"
+     )
+    #dev.copy2pdf(file="Figures/ED_bodymass_commu.pdf")
+
+###------------------- Plants
+
+##### ----- regional level - Atlantic
+#seed_diam<-as.numeric(sd_unique_atl$seed_diameter) ## 444 species
+#results_ed_sd<-corPerm3(log(seed_diam),log(ED100_p$mean_plants_ed),nperm=999, tail=2)
+#results_ed_sd
+
+##### ----- community level  ### 360 species
+seed_diam1<-as.numeric(sd_unique_commu$seed_diameter)
+results_ed_sd_commu<-corPerm3(log(seed_diam1),log(sd_unique_commu$mean_plants_ed),nperm=999, tail=2)
+results_ed_sd_commu
+
+plot(log(seed_diam1)~log(sd_unique_commu$mean_plants_ed),
+     cex.main=.7,cex.lab=.8, main = "b) Bird-dispersed Plant Species",
+     ylab="Seed diameter (mm)",
+     xlab="Evolutionary Distinctiveness (log[mean ED])"
+     )
+    #dev.copy2pdf(file="Figures/ED_sd_commu.pdf")
+
+```
+
+
+creating a Defaunation index per community
+```{r defaunation index, cache = FALSE}
+
+#### loop to calculate the sum of body mass per site
+#sum_bm<-NULL
+#sites<-as.factor(unique(communities_bm$site))
+#sum_body1=NULL
+#for (i in sites){
+  #commu=subset(communities_bm,site==i)
+  #j=sum(commu$Frug_Body_Mass, na.rm=T)
+  #result=cbind(i,j)
+  #sum_body1=rbind(sum_body1,result)
+  #print(i)
+  #}
+
+### alternative for the loop
+#library(plyr)
+sum_bm<-NULL
+sum_bm_site=ddply(bm_commu, .(site), summarize, sum_bm=sum(Frug_Body_Mass, na.rm=T))
+sum_bm_site
+
+mean_bm<-NULL
+mean_bm_site=ddply(bm_commu, .(site), summarize, mean_bm=mean(Frug_Body_Mass, na.rm=T))
+mean_bm_site
+
+
+### regional pool of bodymass
+sum_pool<-sum(bm_unique_atl$Frug_Body_Mass, na.rm=T)
+mean_pool<-mean(bm_unique_atl$Frug_Body_Mass, na.rm=T)
+
+#### ------------- defaunation index based on body mass
+mean_bm_site[,3]<-NULL
+mean_bm_site$def_mean<-(1-(mean_bm_site$mean_bm)/mean_pool)
+mean_bm_site[,4]<-NULL
+mean_bm_site$def_sum<-(1-(sum_bm_site$sum_bm)/sum_pool)
+
+communities1<-with(communities, communities[order(site) , ])
+mean_bm_site<-with(mean_bm_site, mean_bm_site[order(site) , ])
+new_commu<-cbind(communities1, mean_bm_site)### to merge site data and Defaunation index
+def_site<-merge(communities1,mean_bm_site, by= "site", all=T)
+
+#def_site<-cbind.data.frame((new_commu3$site),new_commu3$def_mean,new_commu3$def_sum, new_commu3$area_ha) ### to get only the variables of interest
+
+
+
+```
+
+
+```{r defaunation area correlation}
+
+cor(def_site$def_sum,log(def_site$area_ha)) ### area and defaunation are correlated by -0.63
+###### we use the residual of the correlation as the indpendent variable
+m1<-lm(def_site$def_sum~log(def_site$area_ha))
+summary(m1)
+
+def_resid<-residuals(m1)
+def_site[,5]<-NULL
+def_site$def_residuals<-def_resid
+
+#### result 
+m1b<-lm(def_site$def_sum~(def_site$def_residuals))
+summary(m1b)
+
+
+##plots - add the number of each within the circles
+plot(def_site$def_sum~log(def_site$area_ha),
+     xlab = "Area of the fragments (log[ha])",
+     ylab = "Defaunation index",
+     cex.lab=1.3, pch = 19, col = "darkgreen", cex = 2
+     )
+abline(m1)
+#dev.copy2pdf(file="Figures/Def_area.pdf")
+
+
+```
+
+
+
+More defaunated fragments hold interactions performed by less evolutionary distinctive bird and plant species (ED)
+testing ED per fragment - area and defaunation
+```{r ED of interactions}
+
+#### order dataframes by interaction - 3565 levels of interactions, but 3229 observations
+
+#### calculating the mean ED per interactions
+
+int_commu1<-join(int_commu,sd_unique_commu, by = "Plant_Species", type = "left", match = "first")
+
+int_commu2<-join(int_commu1,bm_unique_commu, by = "Frugivore_Species", type = "left", match = "first")
+#int_commu2<-int_commu2[,-(9:14)]
+#int_commu2<-int_commu2[,-(10:15)]
+int_commu2[,18]<-NULL
+int_commu2$int_ed<-with(int_commu2, mean_birds_ed+mean_plants_ed)
+int_commu2<-int_commu2[,-(5)]
+int_commu2<-int_commu2[,-(6)]
+int_commu2<-int_commu2[,-(8:13)]
+int_commu2<-int_commu2[,-(9)]
+
+####### calculating mean of interactions ED per site
+mean_ED_site<-NULL
+mean_int_ED_site=ddply(int_commu2, .(site), summarize, mean_ED_site=mean(int_ed, na.rm=TRUE))
+mean_int_ED_site
+
+sum_ED_site<-NULL
+sum_int_ED_site=ddply(int_commu2, .(site), summarize, sum_ED_site=sum(int_ed, na.rm=T))
+sum_int_ED_site
+
+int_ed_site<-cbind(mean_int_ED_site, sum_int_ED_site)
+int_ed_def_site<-cbind(int_ed_site, def_site)
+int_ed_def_site <- int_ed_def_site[,-(3),drop=TRUE]
+int_ed_def_site <- int_ed_def_site[,-(4),drop=T]
+colnames(int_ed_def_site)[colnames(int_ed_def_site) == 'new_commu3$def_mean'] <- 'def_mean'
+colnames(int_ed_def_site)[colnames(int_ed_def_site) == 'new_commu3$def_sum'] <- 'def_sum'
+colnames(int_ed_def_site)[colnames(int_ed_def_site) == 'new_commu3$area_ha'] <- 'area_ha'
+#ed_commu<- int_ed_site1[,-(7:10),drop=T]
+
+par(mfrow=c(1,1))
+plot(log(int_ed_def_site$sum_ED_site)~int_ed_def_site$def_sum,
+     xlab = "Defaunation",
+     ylab = "Sum of Evolutionary Distinctiveness of Interactions")
+
+plot(log(int_ed_def_site$sum_ED_site)~int_ed_def_site$sum_ED_site,
+     xlab = "Sum of EDi",
+     ylab = "Mean of EDi")
+cor(int_ed_def_site$sum_ED_site,int_ed_def_site$mean_ED_site)
+
+plot(log(int_ed_def_site$sum_ED_site)~log(int_ed_def_site$area_ha),
+          xlab = "Area of the fragment (log[ha])", xlim = c(12,0),
+     ylab = "Sum of Evolutionary Distinctiveness of Interactions")
+
+plot(log(int_ed_def_site$sum_ED_site)~log(int_ed_def_site$area_ha),
+          xlab = "Area of the fragment (log[ha])", xlim = c(12,0),
+     ylab = "Sum of Evolutionary Distinctiveness of Interactions")
+  
+#dev.copy2pdf(file="Figures/ED_def_area.pdf")    
+
+### simple linear models
+m1<-lm(mean_ED_site~def_sum, data = int_ed_def_site)
+summary(m1) #### mean ED per site not related to mean DEF
+
+m2<-lm(sum_ED_site~def_mean, data = int_ed_def_site)
+summary(m2) # sum ED per site marginally related to mean DEF
+
+m3<-lm(sum_ED_site~def_sum, data = int_ed_def_site)
+summary.lm(m3) ### sums of ED is effected by the Def (sum)
+
+###### selected model used in the MS
+final_model<-lm(log(int_ed_def_site$sum_ED_site)~int_ed_def_site$def_residuals)
+summary(final_model)
+
+```
+
+```{r mean of ED for EDi}
+### in replying to reviewer 1, using the mean of bird and plant ED to create EDi, instead of the sum
+int_commu2[,11]<-NULL
+int_commu2$int_ed_mean<-with(int_commu2, (mean_birds_ed+mean_plants_ed)/2)
+
+plot(int_commu2$int_ed_mean, int_commu2$int_ed)
+cor(int_commu2$int_ed_mean,int_commu2$int_ed)
+
+
+```
+
+
+
+```{r null models for cumulative EDi, Fig R1}
+###### NULL MODELS to control for differences in network size affecting cumulative EDi
+### transform dataframe into a matrix for the null models 
+df_new<-int_commu2[,c("site","interaction", "int_ed")]
+matrix_int_ed<-xtabs(int_ed~site+interaction, data=df_new,
+                     drop.unused.levels = TRUE) 
+
+#m<-matrix_int_ed[,colSums(matrix_int_ed^2) !=0] # drop columns with only zeros
+
+
+##### null models to test whether the observed ED per fragment is higher/lower than expected by chance, considering the size of the matrix, ie. number of species in each community
+nulls_int<-bipartite::nullmodel(matrix_int_ed,method=4, N=100)
+nulls2i<-lapply(nulls_int, FUN = rowMeans, na.rm=TRUE)
+nulls3i<- sapply(nulls2i,function(x) sapply(x, function(x) mean(x,na.rm=TRUE)) )
+mean_nulls_ed_int<-rowMeans(nulls3i)
+sd_nulls_ed_int<-apply(nulls3i, 1, sd)
+
+ses.ed_int<-(rowMeans(matrix_int_ed)-mean_nulls_ed_int)/sd_nulls_ed_int
+
+
+###### include these results in the SM
+results_ses_ed_int<-lm(ses.ed_int~(int_ed_def_site$def_sum))
+summary.lm(results_ses_ed_int)
+par(mfrow=c(1,1))
+plot((ses.ed_int)~(int_ed_def_site$def_sum), 
+     main="t= -4.811, p< 0.001",cex.main=.8,
+     ylab="Deviation from null models (EDi[MY])",cex.lab=0.9,
+     ylim = c(-20,70),
+     xlab="Intensity of defaunation",
+     pch = 19, col = "light blue", cex = 2
+     )
+text((int_ed_def_site$ses.ed_int), int_ed_def_site$def_sum, int_ed_def_site$ID_new) 
+int_ed_def_site<-cbind(ses.ed_int,int_ed_def_site)
+ls(int_ed_def_site)
+abline(results_ses_ed_int)
+dev.copy2pdf(file="Figures/EDint_def_nullmodels.pdf")
+
+
+############# ggplot
+p<-ggplot(int_ed_site2, aes(x= def_sum, y= (ses.ed_int1), colour="green", label=ID_new)) +
+  geom_text(aes(label=ID_new),hjust=.6, vjust=0.5, color = "black", size = 4)
+p + geom_point(color = "blue", size = 8, shape = 21, stroke = .5) +
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) +
+  theme(axis.title.x = element_text(size=12),
+      axis.title.y = element_text(size=12)) +
+   labs(y="Deviation from null models (EDi[MY])", x = "Intensity of defaunation")
+
+
+### removing intervales
+#int_ed_site2<-int_ed_def_site[-10,]
+#ses.ed_int1<-ses.ed_int[-10]
+#results_ses_ed_int1<-lm(ses.ed_int1~(int_ed_site2$def_sum))
+#summary.lm(results_ses_ed_int1)
+
+
+#plot(ses.ed_int1~(int_ed_site2$def_sum), 
+ #    main="t= -4.917, p< 0.001",cex.main=.8,
+  #   ylab="Deviation from null models (ED[MY])",cex.lab=0.9,
+   #  xlab="Defaunation index"
+    # )
+#abline(results_ses_ed_int1)
+#dev.copy2pdf(file="Figures/EDint_def_nullmodels_RemovedIntervales.pdf")
+
+
+#######
+
+save.image("ms_phylogenies2.RData")
+```
+
+```{r resample Intervales}
+### the idea is to resample intervales according to the N of interactions observed in the smaller area fragment (26), then compare the total EDi
+# differences in total EDi indicates the loss is not at random
+## think on a null model for this
+
+df1<-as.data.frame(intervales_i$interaction)
+colnames(df1)[1]<-"interaction"
+df2<-join(df1,int_commu2, by = "interaction", type = "left", match = "first")
+
+#### code to sample Intervales 26 times, and obtain the sum EDi per sample
+
+df<-select(df2, interaction, int_ed)
+output <- lapply(1:1000, function(rep) {
+    sample_n((df), 26, replace = FALSE) %>%
+    summarize(sum_x = sum(int_ed)) %>%
+    mutate(replicate=rep)
+})
+rep_df <- do.call(rbind, output)
+(rep_df)
+
+mean_sub_intervales<-mean(as.numeric(rep_df$sum_x), na.rm = TRUE)
+sd_sub_intervales<-sd(as.numeric(rep_df$sum_x), na.rm = TRUE)
+z_sub_intervales<-(sum_int_ED_site[21,2]-mean_sub_intervales)/sd_sub_intervales
+z_sub_intervales#### there is no difference from the observed EDi of the smaller area and the sub-sampled Intervales --- DOES IT MAKE SENSE?
+
+#### code to sample Intervales 26 times, and obtain the sum EDi per sample
+
+df3<-select(df2, interaction, Frug_Body_Mass)
+output <- lapply(1:1000, function(rep) {
+    sample_n((df3), 26, replace = FALSE) %>%
+    summarize(sum_x = sum(Frug_Body_Mass)) %>%
+    mutate(replicate=rep)
+})
+rep_df3 <- do.call(rbind, output)
+(rep_df3)
+
+mean_sub_intervales3<-mean(as.numeric(rep_df3$sum_x), na.rm = TRUE)
+sd_sub_intervales3<-sd(as.numeric(rep_df3$sum_x), na.rm = TRUE)
+z_sub_intervales3<-(sum_bm_site[21,2]-mean_sub_intervales3)/sd_sub_intervales3
+z_sub_intervales3#### there is no difference from the observed EDi of the smaller area and the sub-sampled Intervales --- DOES IT MAKE SENSE?
+
+
+
+
+#####
+#HISTOGRAMS FOR BODYMASS OF INTERVALES AND UFRJ
+par(mfrow=c(4,4))
+hist((bm_commu[bm_commu$site=="intervales",]$Frug_Body_Mass),xlab="Birds body mass (g)", main= "1", col="lightgreen")
+hist((bm_commu[bm_commu$site=="botelho",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "2", col="lightgreen")
+hist((bm_commu[bm_commu$site=="reservasRJ",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "3", col="lightgreen")
+hist((bm_commu[bm_commu$site=="jurubatiba",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "4", col="lightgreen")
+hist((bm_commu[bm_commu$site=="cardoso",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "5", col="lightgreen")
+hist((bm_commu[bm_commu$site=="itapua",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "6", col="lightgreen")
+hist((bm_commu[bm_commu$site=="rebioAntas",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "7", col="lightgreen")
+hist((bm_commu[bm_commu$site=="ibitipoca",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "8", col="lightgreen")
+hist((bm_commu[bm_commu$site=="comboios",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "9", col="lightgreen")
+hist((bm_commu[bm_commu$site=="anchieta",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "10", col="lightgreen")
+hist((bm_commu[bm_commu$site=="fragmentMG",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "11", col="lightgreen")
+hist((bm_commu[bm_commu$site=="araucaria",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "12", col="lightgreen")
+hist((bm_commu[bm_commu$site=="stagenebra",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "13", col="lightgreen")
+hist((bm_commu[bm_commu$site=="itatiba",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "14", col="lightgreen")
+hist((bm_commu[bm_commu$site=="fragmentRC",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "15", col="lightgreen")
+hist((bm_commu[bm_commu$site=="restored57",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "16", col="lightgreen")
+hist((bm_commu[bm_commu$site=="restored15",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "17", col="lightgreen")
+hist((bm_commu[bm_commu$site=="restored25",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "18", col="lightgreen")
+hist((bm_commu[bm_commu$site=="fragmentSP",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "19", col="lightgreen")
+hist((bm_commu[bm_commu$site=="pira",]$Frug_Body_Mass), xlab="Birds body mass (g)", main= "20", col="lightgreen")
+hist((bm_commu[bm_commu$site=="ufrj",]$Frug_Body_Mass),xlab="Birds body mass (g)", main= "21", col="lightgreen") 
+
+```
+
+
+ED and centrality (k, number of fragments in which the interaction occurs)
+```{r degree of interactions}
+### transform dataframe into a matrix for centrality
+
+matrix_bin<-matrix_int_ed
+matrix_bin[matrix_bin > 0] = 1
+write.csv(matrix_bin, "nested_interactions1.csv")
+
+###### matrix occurrence of birds
+occ_birds<-xtabs(int_ed~Frugivore_Species+site, data=int_commu2)
+dim(occ_birds)
+occ_birds[occ_birds > 0] = 1
+
+###### matrix occurrence of plants
+occ_plants<-xtabs(int_ed~Plant_Species+site, data=int_commu2)
+dim(occ_plants)
+occ_plants[occ_plants > 0] = 1
+
+###### matrix nestedness of birds
+nested_birds<-xtabs(mean_birds_ed~site+Frugivore_Species, data=bm_commu)
+dim(nested_birds)
+nested_birds[nested_birds > 0] = 1
+
+###### matrix nestedness of plants
+nested_plants<-xtabs(mean_plants_ed~site+Plant_Species, data=sd_ED_commu)
+dim(nested_plants)
+nested_plants[nested_plants > 0] = 1
+
+
+##### calculating degree of interactions
+k_int<-specieslevel (matrix_bin, level = "higher", index = "degree")
+k_int<-rownames_to_column(k_int, var="interaction") ## transform rownmaes to columns #library(tibble)
+
+setdiff(k_int$interaction,int_commu2$interaction)
+setdiff(int_commu2$interaction,k_int$interaction)
+
+ed<-join(k_int,int_commu2,by = "interaction", type = "left", match = "first")
+
+
+##### calculating degree of bird species
+k_birds<-specieslevel (nested_birds, level = "higher", index = "degree")
+k_birds<-rownames_to_column(k_birds, var="Frugivore_Species") 
+traits_birds<-join(bm_ED_commu,k_birds,by = "Frugivore_Species", match= "first", type = "left")
+#write.csv(traits_birds, "birds_traits.csv")
+
+##### calculating degree of plant species
+k_plants<-specieslevel (nested_plants, level = "higher", index = "degree")
+k_plants<-rownames_to_column(k_plants, var="Plant_Species") 
+traits_plants<-join(sd_ED_commu,k_plants,by = "Plant_Species", match= "first", type = "left")
+#write.csv(traits_plants, "plants_traits.csv")
+
+
+####### mean of bird and plants as additive response variables to test the effec to defaunation in the interaction centrality
+####### scale of the means - similar results, nothing significant when using means
+ed$mean_birds_ed_scl<-ed$mean_birds_ed/max(ed$mean_birds_ed, na.rm = TRUE)
+ed$mean_plants_ed_scl<-ed$mean_plants_ed/max(ed$mean_plants_ed,na.rm = TRUE)
+ed["mean_birds_ed_scl"]<-ed$mean_birds_ed/max(ed$mean_birds_ed, na.rm = TRUE)
+ed["mean_plants_ed_scl"]<-ed$mean_plants_ed/max(ed$mean_plants_ed,na.rm = TRUE)
+
+
+mk<-glmer(degree~(mean_birds_ed_scl)+(mean_plants_ed_scl) +
+            (1|Frugivore_Species)+(1|Plant_Species),data=ed,family="poisson")
+summary(mk) ## only birds are significant
+
+mk1<-glmer(degree~(mean_birds_ed_scl)+ (1|Frugivore_Species),data=ed,family="poisson") ## simplified model
+summary(mk1) ## only birds are significant 
+
+par(mfrow=c(1,2))
+plot(degree~(mean_birds_ed), data=ed, 
+     #main="t= -2.074, p=0.0381, glmer",
+     cex.main=.7,
+     ylab="N fragments in which the interaction occurs",cex.lab=0.8,
+     xlab="Evolutionary Distinctness of bird species (MY)"
+     )
+
+plot(degree~(mean_plants_ed), data=ed, 
+     cex.main=.7,
+     ylab="N fragments in which the interaction occurs",cex.lab=0.8,
+     xlab="Evolutionary Distinctness of plant species (MY)"
+     )
+
+dev.copy2pdf(file="Fig. k_int vs ED.pdf")
+
+######MCMC -  change results each time it is run! more stable with higher nitt and burnin
+#library(MCMCglmm)
+#ed$family<-NULL
+#rmcmc_k<-MCMCglmm(degree~log(mean_birds_ed)+log(mean_plants_ed),
+ #                 random=~Frugivore_Species+Plant_Species,family="poisson",data=ed, 
+  #                nitt=1000000, burnin = 10000)
+#summary(rmcmc_k)
+#plot(rmcmc_k)
+
+#rmcmc_bc<-MCMCglmm(log(bc_int+1)~log(mean_birds_ed)+log(mean_plants_ed),
+ #                 random=~birds+plants,data=ed)
+#summary(rmcmc_bc)
+
+
+```
+
+
+Asymmetries 
+```{r asymmetries}
+#ed<-int_commu2
+ed_unique<-subset(ed,!duplicated(ed[,1])) #### testing with unique interactions
+
+##### testing whether interactions are symmetric
+#asym_test<-corPerm3(ed1$mean_birds_ed,ed1$mean_plants_ed, nperm = 999, tail = 2)
+#asym_test
+
+#asym_scl_test<-corPerm3(ed1$mean_birds_ed_scl,ed1$mean_plants_ed_scl, nperm = 999, tail = 2)
+#asym_scl_test
+
+### dij= (Ai-Bj)/max(Ai,Bj)
+#A= mean_birds_ed
+#B= mean_plants_ed
+## + values - more ED birds w less ED plants
+## - values - less ED birds w more ED plants
+
+
+####### testing with total interactions - 3230
+#asym<-NULL
+#for (i in 1:nrow(ed)){
+ #asym [i]<- (ed$mean_birds_ed[i]-ed$mean_plants_ed[i])/max(ed$mean_birds_ed[i],ed$mean_plants_ed[i])
+#}
+#ed["asym"]<-asym
+#ed$asym
+
+
+#asym_scl<-NULL
+#for (i in 1:nrow(ed)){
+ #asym_scl [i]<- (ed$mean_birds_ed_scl[i]-ed$mean_plants_ed_scl[i])/max(ed$mean_birds_ed_scl[i],ed$mean_plants_ed_scl[i])
+}
+#ed["asym_scl"]<-asym_scl
+
+
+#### testing whether ED asymmetry values are different than zero, therefore asymmetric
+#t.test(ed$asym)
+
+
+
+
+######## testing with unique interactions 2669
+### use scaled asymmetries only
+
+asym_scl<-NULL
+for (i in 1:nrow(ed_unique)){
+ asym_scl [i]<- (ed_unique$mean_birds_ed_scl[i]-ed_unique$mean_plants_ed_scl[i])/max(ed_unique$mean_birds_ed_scl[i],ed_unique$mean_plants_ed_scl[i])
+}
+ed_unique["asym_scl"]<-asym_scl
+hist(ed_unique$asym_scl)
+
+t.test(ed_unique$asym_scl)
+
+
+
+#### scaled
+type_scl<-NULL
+type_asym_scl<-ifelse(ed_unique$asym_scl > 0,"positive","negative")
+ed_unique["type_asym_scl"]<-type_asym_scl
+#write.csv(ed, "ed_traits_new.csv")
+
+
+
+########## Asymmetries and degree to test whether more asymetric interactions are related to more persisting interactions
+
+
+
+plot(ed1$degree~ed1$asym,xlab="ED of interaction asymmetry",
+    ylab="N fragments in which the interaction occurs")
+     #main = "z= -2.239, p = 0.025")
+plot(ed$asym~ed$degree,ylab="Interaction asymmetry of ED",
+     xlab="N fragments in which the interaction occurs")
+     #main = "z= -2.239, p = 0.025")
+dev.copy2pdf(file="Fig. k_int vs asymmetry.pdf")
+
+
+########## Testig whether more asymetric interactions are related to more persisting birds and plants
+mk4<-glmer(degree~mean_birds_ed_scl + mean_plants_ed_scl + (1|Frugivore_Species),data=ed_unique,family="poisson")
+summary(mk4)
+
+mk5<-glmer(degree~mean_plants_ed_scl + (1|Plant_Species),data=ed_unique,family="poisson")
+summary(mk5)
+
+#####
+#CONTOUR PLOTS OPTION
+library(plotly)
+  x = (ed_unique$mean_plants_ed_scl)
+  y = (ed_unique$mean_birds_ed_scl)
+
+####
+cols<-c("blue", "yellow")
+q<-ggplot(data=ed_unique, aes(x=x, y=y, z=asym_scl)) +
+stat_density2d(aes(alpha=..level..), contour=TRUE, geom="polygon", colour= "blue") +
+geom_density2d(size=1)+
+  scale_y_continuous(limits = c(0,.5)) +
+  scale_x_continuous(limits = c(0,.5)) +
+  labs(y="Birds Evolutionary Distinctiveness (log)", x = "Plants Evolutionary Distinctiveness (log)") +
+  geom_point(aes(colour = asym_scl), shape = 21, size = 1, stroke = 0.2)+
+  scale_colour_gradient(low="dark green", high="orange") +
+             
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank()) +
+ geom_abline(intercept = 0, slope = 1, colour='gray', linetype=2) +
+theme(axis.title.x = element_text(size=14),
+      axis.title.y = element_text(size=14))
+q
+# add marginal histograms
+#library(ggExtra)
+#ggExtra::ggMarginal(q, type = "histogram")
+
+dev.copy2pdf(file="Fig. asymmetries new.pdf")
+save.image("ms_phylogenies2.RData")
+
+```
+
+Figures
+```{r figure science,eval=FALSE}
+
+bt100<-read.newick("birds_solved100_trees.nwk")
+
+#Three plots to compose a nice figure for your Science paper
+dev.off()
+#ed["mean_birds_ed"] <- rowMeans(ed[,2:101])
+ed_birds<-subset(ed,!duplicated(ed[,2]))
+#ed_birds_unique<-subset(ed,!duplicated(ed[,1]))
+traits1<-subset(ed_birds, select = c("Frugivore_Species2","Frug_Body_Mass","mean_birds_ed"))
+                                        #    "k_birds", 
+dim(traits1)
+#traits1$birds <- sub(" ", "_", traits1$birds)
+#write.csv(traits1,"birds_unique.csv")
+
+rownames(traits1)<-traits1$Frugivore_Species2
+traits1$birds<-NULL
+
+
+
+########## code by Miguel
+####
+tree<- bt100[[1]]#read tree birds
+sp_remove<-setdiff(tree$tip.label,traits1$Frugivore_Species2) ## select species from the regional pool not recorded in the studied communities
+tree1<-drop.tip(tree, sp_remove) ## remove species from the regional pool tree
+
+traits1<-traits1[tree1$tip.label,]
+colorstraits<-colorRampPalette(colors=c("white","black"))(2)
+phylo.heatmap(tree,traits1, colors=colorstraits, fsize=0.2)
+#dev.copy2pdf(file="Figures/Heatmap_traits_nat.pdf")
+
+
+###### occurrence
+
+###### matrix occurrence of birds
+occ_birds<-xtabs(int_ed~Frugivore_Species2+site, data=int_commu2)
+dim(occ_birds)
+occ_birds[occ_birds > 0] = 1
+
+occurrence<-occ_birds[tree1$tip.label,]
+colorstraits<-colorRampPalette(colors=c("white","black"))(100)
+phylo.heatmap(tree,occ_birds,fsize=1, labels=TRUE)
+#dev.copy2pdf(file="Figures/Heatmap_sp_occurrence_birds.pdf")
+#dev.copy2pdf(file="Figures/Fig_occurrence_birds.pdf")
+
+
+#### mapping evolutionary history in the tree
+birds_ed2<-traits1$mean_birds_ed
+names(birds_ed2)<-rownames(traits1)
+
+obj<-contMap(tree1,birds_ed2,plot=FALSE, fsize=0.05, lwd = .5, type = "fan")
+n<-length(obj$cols)
+obj$cols[1:n]<-colorRampPalette(c("blue","yellow"), space="Lab")(n)
+plot(obj, type="fan", fsize=.8, lwd=3)
+dev.copy2pdf(file="Figures/Heatmap_ED_birds_fan.pdf")
+
+save.image("ms_phylogenies1.RData")
+#rm(list=ls())
+
+#----------------------------------------------------------------------------plants
+############
+#### plants
+tt100<-read.newick("plants_100trees.nwk")
+
+#Three plots to compose a nice figure for your Science paper
+dev.off()
+
+ed_plants<-subset(ed,!duplicated(ed[,3]))
+traits1p<-subset(ed_plants, select = c("Plant_Species","seed_diameter","mean_plants_ed"))
+                                        #    "k_birds", 
+traits1p$Plant_Species2 <- sub(" ", "_", traits1p$Plant_Species)
+rownames(traits1p)<-traits1p$Plant_Species2
+traits1p$plants<-NULL
+
+########## code by Miguel
+####
+treep<- tt100[[1]]
+plants_remove<-setdiff(treep$tip.label,traits1p$Plant_Species2)
+tree1p<-drop.tip(treep, plants_remove) 
+
+traits1p<-traits1p[tree1p$tip.label,]
+colorstraits<-colorRampPalette(colors=c("white","black"))(2)
+#phylo.heatmap(tree,traits1, colors=colorstraits, fsize=0.2)
+#dev.copy2pdf(file="Figures/Heatmap_traits_nat.pdf")
+
+#phylo.heatmap(treep,traitsp, colors=colorstraits, fsize=0.2)
+#dev.copy2pdf(file="Figures/Heatmap_traits_plants.pdf")
+#setdiff(rownames(traits1p),tree1p$tip.label)
+#which(rownames(traitsp)=="Rhipsalis_campos portoana")
+#rownames(traitsp)[[54]]<-"Rhipsalis_campos_portoana"
+
+#dev.new()
+#setdiff(rownames(occurrence_plants),treep$tip.label)
+
+###### matrix occurrence of plants
+occ_plants<-xtabs(int_ed~Plant_Species+site, data=int_commu2)
+dim(occ_plants)
+occ_plants[occ_plants > 0] = 1
+
+occurrence_plants<-occ_plants[tree1p$tip.label,]
+#oc_binary<-ifelse(occurrence_plants>0,1,0)
+colorstraits<-colorRampPalette(colors=c("white","black"))(2)
+phylo.heatmap(treep,occurrence_plants,fsize=1, legend=TRUE)## check if labels=FALSE works
+#dev.copy2pdf(file="Figures/Heatmap_plants_occurrence.pdf")
+#dev.copy2pdf(file="Figures/Fig_plants_occurrence.pdf")
+
+#### mapping evolutionary history in the tree
+plants_ed2<-traits1p$mean_plants_ed
+names(plants_ed2)<-rownames(traits1p)
+
+obj<-contMap(tree1p,plants_ed2,plot=FALSE, fsize=0.05, lwd = .5, type = "fan")
+n<-length(obj$cols)
+obj$cols[1:n]<-colorRampPalette(c("blue","yellow"), space="Lab")(n)
+plot(obj, type="fan", fsize=.8, lwd=3)
+dev.copy2pdf(file="Figures/Heatmap_ED_plants_fan.pdf")
+
+
+save.image("ms_phylogenies1.RData")
+
+#rm(list=ls())
+
+```
+
+
