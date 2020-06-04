@@ -13,8 +13,6 @@ Dugger_GlobEcolBiogeogr2018. Seed‐dispersal networks are more specialized in t
 Emer_Biotrop2019. Seed dispersal networks in tropical forest fragments- Area effects, remnant species, and interaction diversity
 Emer_EcolLett2018. Seed-dispersal interactions in fragmented landscapes – a metanetwork approach
 Emer_SciAdv2019. Defaunation precipitates the extinction of evolutionarily distinct interactions in the Anthropocene
-Mendes_BiolConser2020. Landscape of human fear in Neotropical rainforest mammals
-Souza_Ecol2019. ATLANTIC MAMMALS: a data set of assemblages of medium- and large-sized mammals
 Villar_JEcol2019. The cryptic regulation of diversity by functionally complementary large tropical forest herbivores
 
 Other publications - Publications in science magazines, etc.
